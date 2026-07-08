@@ -66,14 +66,28 @@ function connectws() {
 // NOW PLAYING WIDGET //
 ////////////////////////
 
+function ResolveArtworkUrl(artwork) {
+	if (!artwork || !artwork.url) return null;
+	let url = artwork.url
+		.replace("{w}", artwork.width > 0 ? artwork.width : 600)
+		.replace("{h}", artwork.height > 0 ? artwork.height : 600)
+		.replace("{c}", "bb")
+		.replace("{f}", "jpg");
+	if (url.includes("{")) {
+		console.warn("Artwork URL still has unresolved placeholders:", artwork.url);
+	}
+	return url;
+}
+
 function UpdateSongInfo(data) {
 	// Set the user's info
-	let albumArtUrl = data.artwork.url;
-	albumArtUrl = albumArtUrl.replace("{w}", data.artwork.width);
-	albumArtUrl = albumArtUrl.replace("{h}", data.artwork.height);
+	console.log("Raw artwork data:", JSON.stringify(data.artwork));
+	let albumArtUrl = ResolveArtworkUrl(data.artwork);
 
-	UpdateAlbumArt(document.getElementById("albumArt"), albumArtUrl);
-	UpdateAlbumArt(document.getElementById("backgroundImage"), albumArtUrl);
+	if (albumArtUrl) {
+		UpdateAlbumArt(document.getElementById("albumArt"), albumArtUrl);
+		UpdateAlbumArt(document.getElementById("backgroundImage"), albumArtUrl);
+	}
 
 	setTimeout(() => {
 		UpdateTextLabel(document.getElementById("songLabel"), data.name);
@@ -93,17 +107,49 @@ function UpdateSongInfo(data) {
 }
 
 function UpdateTextLabel(div, text) {
-	if (div.innerHTML != text) {
+	if (div.dataset.text != text) {
 		div.setAttribute("class", "text-fade");
 		setTimeout(() => {
-			div.innerHTML = text;
-			div.setAttribute("class", ".text-show");
+			div.dataset.text = text;
+			const span = document.createElement("span");
+			span.className = "marquee-inner";
+			span.textContent = text;
+			div.innerHTML = "";
+			div.appendChild(span);
+			div.setAttribute("class", "text-show");
+			ApplyMarquee(div, span);
 		}, animationSpeed * 250);
 	}
 }
 
+function ApplyMarquee(div, span) {
+	// Wait a frame so the new text has been laid out before measuring
+	requestAnimationFrame(() => {
+		const overflow = span.scrollWidth - div.clientWidth;
+		if (overflow > 2) {
+			// Text is wider than the widget: scroll it back and forth
+			const duration = Math.max(6, (overflow / 20) * 2 + 4);
+			span.style.setProperty("--marquee-shift", `-${overflow}px`);
+			span.style.setProperty("--marquee-duration", `${duration}s`);
+			span.classList.add("marquee-scroll");
+			div.style.textOverflow = "clip";
+		} else {
+			span.classList.remove("marquee-scroll");
+			div.style.textOverflow = "";
+		}
+	});
+}
+
 function UpdateAlbumArt(div, imgsrc) {
 	if (div.src != imgsrc) {
+		// If the image fails to load (e.g. wrong format guess), retry once as png
+		div.onerror = () => {
+			div.onerror = null;
+			if (div.src.endsWith(".jpg")) {
+				console.warn("Artwork failed to load, retrying as png:", div.src);
+				div.src = div.src.replace(/\.jpg$/, ".png");
+			}
+		};
 		div.setAttribute("class", "text-fade");
 		setTimeout(() => {
 			div.src = imgsrc;
